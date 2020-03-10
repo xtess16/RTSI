@@ -16,8 +16,14 @@ import itertools
 import chow_test
 from tqdm import tqdm
 
-draw = plt.plot
+
 T_SEQUENCE = Union[Sequence, np.ndarray]
+
+
+def draw(seq, *args, **kwargs):
+    if isinstance(seq, Model):
+        seq = seq.sequence
+    return plt.plot(seq, *args, **kwargs)
 
 
 def exponential_smoothing(seq, alpha):
@@ -113,6 +119,7 @@ def find_acf(seq, a, b=None):
 
 
 class Model:
+    # Вычитание, сложение, возведение в степень и пр. доделать
     def __init__(self, seq: T_SEQUENCE):
         self.sequence: np.ndarray = np.array(seq)
 
@@ -124,8 +131,44 @@ class Model:
     def seq(self, value: T_SEQUENCE):
         self.sequence = value
 
+    def __getattr__(self, item):
+        return getattr(self.sequence, item)
+
+    def __getitem__(self, item):
+        return self.sequence[item]
+
     def __iter__(self):
         return iter(self.sequence)
+
+    def __sub__(self, other):
+        if isinstance(other, Model):
+            return Model(self.sequence - other.sequence)
+        return Model(self.sequence - other)
+
+    def __add__(self, other):
+        if isinstance(other, Model):
+            return Model(self.sequence + other.sequence)
+        return Model(self.sequence + other)
+
+    def __mul__(self, other):
+        if isinstance(other, Model):
+            return Model(self.sequence * other.sequence)
+        return Model(self.sequence * other)
+
+    def __pow__(self, power, modulo=None):
+        return Model(pow(self.sequence, power, modulo))
+
+    def __div__(self, other):
+        if isinstance(other, Model):
+            return Model(self.sequence / other.sequence)
+        return Model(self.sequence / other)
+
+    def __len__(self):
+        return len(self.sequence)
+
+    def fuller_test(self):
+        """ Тест Фуллера """
+        return adfuller(self.sequence)
 
     def arima(self, *args, **kwargs):
         return Arima(self.sequence, *args, **kwargs)
@@ -158,18 +201,26 @@ class Model:
         :param k: Количество параметров
         :return: КФ Акаике
         """
-        return rp.aic.aic(list(self.sequence), list(array), k) / len(self.sequence)
+        if isinstance(array, Model):
+            array = array.sequence.tolist()
+        elif isinstance(array, np.ndarray):
+            array = array.tolist()
+        return rp.aic.aic(self.sequence.tolist(), array, k) / len(self.sequence)
 
-    def find_bic(self, array: T_SEQUENCE, k: int = 1):
+    def bic(self, array: T_SEQUENCE, k: int = 1):
         """
             Вычисление критерия Шварца
         :param array: Второй список
         :param k: Количество параметров
         :return: Критерий Шварца
         """
-        return rp.bic.bic(list(self.sequence), list(array), k) / len(self.sequence)
+        if isinstance(array, Model):
+            array = array.sequence.tolist()
+        elif isinstance(array, np.ndarray):
+            array = array.tolist()
+        return rp.bic.bic(self.sequence.tolist(), array, k) / len(self.sequence)
 
-    def trend_by_kf(self, p):
+    def trend(self, p):
         if isinstance(p, int):
             p = self.polyfit(p)
         pf = np.poly1d(p)
@@ -185,7 +236,7 @@ class Model:
         :param k: Количество параметров модели
         :return: КФ детерминации
         """
-        pl = self.trend_by_kf(self.polyfit(k)).sequence
+        pl = self.trend(self.polyfit(k)).sequence
         mean = self.sequence.mean()
         top = ((pl - mean) ** 2).sum()
         bottom = ((self.sequence - mean) ** 2).sum()
@@ -221,21 +272,25 @@ class Model:
 
 class Arima:
     def __init__(self, endog, *args, **kwargs):
+        if isinstance(endog, Model):
+            endog = endog.sequence
         self.model = ARIMA(endog, *args, **kwargs)
         if kwargs.get('order') is not None:
             self.model.order = kwargs['order']
 
     def fit(self, *args, **kwargs):
         _fitted = self.model.fit(*args, **kwargs)
-        _fitted.data = _fitted.fittedvalues.copy()
+        _fitted.sequence = _fitted.fittedvalues.copy()
         _fitted.old_aic = _fitted.aic
-        _fitted.aic = find_aic(self.model.endog, _fitted.data)
+        _fitted.aic = find_aic(self.model.endog, _fitted.sequence)
         if hasattr(self.model, 'order'):
             _fitted.order = self.model.order
         return _fitted
 
     @classmethod
     def find_optimal_model_by_order(cls, endog, p_sequence, d_sequence, q_sequence):
+        if isinstance(endog, Model):
+            endog = endog.sequence
         if isinstance(p_sequence, int):
             p_sequence = (p_sequence, )
         if isinstance(d_sequence, int):
