@@ -166,6 +166,17 @@ class Model:
     def __len__(self):
         return len(self.sequence)
 
+    def append(self, other, inplace=False):
+        if inplace:
+            if isinstance(other, Model):
+                self.sequence = np.append(self.sequence, other.sequence)
+            else:
+                self.sequence = np.append(self.sequence, other)
+        else:
+            if isinstance(other, Model):
+                return Model(np.append(self.sequence, other.sequence))
+            return Model(np.append(self.sequence, other))
+
     def fuller_test(self):
         """ Тест Фуллера """
         return adfuller(self.sequence)
