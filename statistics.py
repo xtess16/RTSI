@@ -1,34 +1,39 @@
 import functools
-import traceback
+import itertools
 from typing import Union, Sequence, Optional, Tuple, List
 
-import matplotlib.pyplot as plt
-from scipy.stats.stats import pearsonr
-from statsmodels.tsa.stattools import adfuller, pacf, acf
-from statsmodels.stats.diagnostic import het_white, het_breuschpagan
-import numpy as np
 import RegscorePy as rp
-from statsmodels.tsa.arima_model import ARIMA, ARIMAResults
-import itertools
 import chow_test
+import matplotlib.pyplot as plt
+import numpy as np
+import scipy
+from scipy.stats.stats import pearsonr
+from statsmodels.tsa.arima_model import ARIMA
+from statsmodels.tsa.stattools import adfuller, pacf, acf
 from tqdm import tqdm
-
 
 T_SEQUENCE = Union[Sequence, np.ndarray]
 
 
-def draw(seq, *args, **kwargs):
-    if isinstance(seq, Model):
-        seq = seq.sequence
-    if isinstance(seq, PartialModel):
-        for s in seq.sequence_for_draw():
-            draw(s)
-        return
-    return plt.plot(seq, *args, **kwargs)
+def draw(*args, **kwargs):
+    """ plt.plot специально для рисования Model и PartialModel"""
+    result_args = []
+    for arg in args:
+        if isinstance(arg, Model):
+            result_args.append(arg.sequence)
+        elif isinstance(arg, PartialModel):
+            for s in arg.sequence_for_draw():
+                draw(s, **kwargs)
+            return
+        else:
+            result_args.append(arg)
+    return plt.plot(*result_args, **kwargs)
 
 
 class Model:
     def __init__(self, seq: T_SEQUENCE, k=None):
+        if isinstance(seq, PartialModel):
+            seq = seq.join()
         self.sequence: np.ndarray = np.array(seq)
         self.k = k
 
@@ -67,7 +72,7 @@ class Model:
     def __pow__(self, power):
         return Model(self.sequence ** power)
 
-    def __div__(self, other):
+    def __truediv__(self, other):
         if isinstance(other, Model):
             return Model(self.sequence / other.sequence)
         return Model(self.sequence / other)
@@ -110,28 +115,45 @@ class Model:
         return dw
 
     def arima(self, *args, **kwargs):
+        """ Построение модели АРИМА """
         return Arima(self.sequence, *args, **kwargs)
 
-    def acf(self, lag: int):
+    def acf(self, lag: int, **kwargs):
         """
             Поиск автокорреляции
         :param lag: Значение лага
         :return: Список/Значение корреляции
         """
-        return pearsonr(self.sequence[:-lag], self.sequence[lag:])[0]
+        kwargs['nlags'] = lag
+        if kwargs.get('qstat', False):
+            return acf(self, **kwargs)
+        return acf(self, **kwargs)[lag-1]
 
-    def many_acf(self, lag_from: int, lag_to: int):
+    def many_acf(self, lag_from: int, lag_to: int, **kwargs):
         """
             Поиск автокорреляции по нескольким лагам
         :param lag_from: Поиск ОТ лага
         :param lag_to: Поиск ДО лага
         :return: Список/Значение корреляции
         """
-        lags = []
-        for lag in range(lag_from, lag_to + 1):
-            res_lag = pearsonr(self.sequence[: -lag], self.sequence[lag:])[0]
-            lags.append(res_lag)
-        return lags
+        return np.array([self.acf(i, **kwargs) for i in range(lag_from, lag_to)])
+
+    def pacf(self, lag: int):
+        """
+            Поиск частной автокорреляции
+        :param lag: Значение лага
+        :return: Список/Значение корреляции
+        """
+        return pacf(self)[lag-1]
+
+    def many_pacf(self, lag_from: int, lag_to: int):
+        """
+            Поиск частной автокорреляции по нескольким лагам
+        :param lag_from: Поиск ОТ лага
+        :param lag_to: Поиск ДО лага
+        :return: Список/Значение корреляции
+        """
+        return np.array([self.pacf(i) for i in range(lag_from, lag_to)])
 
     def aic(self, array: T_SEQUENCE, k: Optional[int] = None) -> float:
         """
@@ -164,12 +186,14 @@ class Model:
         return rp.bic.bic(self.sequence.tolist(), array, k) / len(self.sequence)
 
     def trend(self, p):
+        """ Построение тренда по степени полинома """
         if isinstance(p, int):
             p = self.polyfit(p)
         pf = np.poly1d(p)
         return Model(pf(range(len(self.sequence))), k=len(p))
 
     def polyfit(self, k: Optional[int] = None):
+        """ Параметры полинома """
         if k is None:
             k = self.k
         p = np.polyfit(range(len(self.sequence)), self.sequence, k)
@@ -292,21 +316,65 @@ class Model:
             return max_chow_result, PartialModel(*models)
         return PartialModel(*models)
 
+    def barlett(self):
+        """ Критерий Барлетта """
+        return scipy.stats.bartlett(self.sequence, range(len(self.sequence)))
+
+    def levene(self):
+        """ Критерий Левене """
+        return scipy.stats.levene(self.sequence, range(len(self.sequence)))
+
+    def mape(self, other):
+        """ Критерий MAPE """
+        return np.mean(np.abs((self - other) / self)) * 100
+
+    def mae(self, other):
+        """ Критерий MAE """
+        return np.mean(np.abs(self - other))
+
 
 class PartialModel:
     def __init__(self, *models):
-        self.models: List[Model] = list(models)
+        models = [model if isinstance(model, Model) else Model(model) for model in models]
+        self.models: List[Model] = models
 
     def __getitem__(self, item):
         return self.models[item]
 
+    def __iter__(self):
+        return iter(self.models)
+
+    def __add__(self, other):
+        return PartialModel(*[item1 + item2 for item1, item2 in zip(self, other)])
+
+    def __sub__(self, other):
+        return PartialModel(*[item1 - item2 for item1, item2 in zip(self, other)])
+
+    def __mul__(self, other):
+        return PartialModel(*[item1 * item2 for item1, item2 in zip(self, other)])
+
+    def __truediv__(self, other):
+        return PartialModel(*[item1 / item2 for item1, item2 in zip(self, other)])
+
+    def __floordiv__(self, other):
+        return PartialModel(*[item1 // item2 for item1, item2 in zip(self, other)])
+
+    def __pow__(self, power):
+        return PartialModel(*[item ** power for item in self])
+
     def join(self):
+        """ Объединение всех кусков в одну модель """
         joined_models = np.array([])
         for model in self.models:
             joined_models = np.append(joined_models, model.sequence)
         return Model(joined_models)
 
     def sequence_for_draw(self, optimize=True):
+        """
+            Получение последовательностей для рисования
+        :param optimize: Если True - то последних элемент каждой последовательности добавляется
+            перед первым элементом следующей последовательности
+        """
         offset = 0
         last_value = None
         for model in self.models:
@@ -339,6 +407,7 @@ class Arima:
         self.order = tuple(kwargs.get('order'))
 
     def fit(self, *args, **kwargs):
+        """ Тренировка модели """
         _fitted = self.model.fit(*args, **kwargs)
         _fitted.sequence = _fitted.fittedvalues
         _fitted.seq = _fitted.sequence
@@ -349,6 +418,14 @@ class Arima:
 
     @classmethod
     def find_optimal_model_by_order(cls, endog, p_sequence, d_sequence, q_sequence):
+        """
+            Подбор оптимальных p, d, q для последовательности
+        :param endog: Последовательность
+        :param p_sequence: параметр p
+        :param d_sequence: параметр d
+        :param q_sequence: параметр q
+        :return: Модель и натренированную модель
+        """
         if isinstance(endog, Model):
             endog = endog.sequence
         if isinstance(p_sequence, int):
