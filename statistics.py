@@ -1,7 +1,9 @@
 import functools
 import itertools
+import traceback
 from typing import Union, Sequence, Optional, Tuple, List
 
+import RegscorePy
 import RegscorePy as rp
 import chow_test
 import matplotlib.pyplot as plt
@@ -445,9 +447,14 @@ class Arima:
                 _fitted = _model.fit()
                 if min_fitted is None or min_fitted.aic > _fitted.aic:
                     min_fitted = _fitted
-            except:
+            except ValueError as e:
+                if 'pass your own start_params.' in str(e):
+                    pass
+            except np.linalg.LinAlgError:
                 pass
-
+            except Exception as e:
+                if 'Expect positive integer' not in str(e):
+                    raise e
         return min_fitted.model, min_fitted
 
     def __getattr__(self, item):
