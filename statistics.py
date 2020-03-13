@@ -1,9 +1,7 @@
 import functools
 import itertools
-import traceback
 from typing import Union, Sequence, Optional, Tuple, List
 
-import RegscorePy
 import RegscorePy as rp
 import chow_test
 import matplotlib.pyplot as plt
