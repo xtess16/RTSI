@@ -9,12 +9,13 @@ import numpy as np
 import scipy
 from scipy.stats.stats import pearsonr
 from statsmodels.tsa.arima_model import ARIMA
+from statsmodels.tsa.statespace.sarimax import SARIMAX
 from statsmodels.tsa.stattools import adfuller, pacf, acf
 from statsmodels.stats.diagnostic import het_white
 from tqdm import tqdm
 
 T_SEQUENCE = Union[Sequence, np.ndarray]
-
+SARIMAX
 
 def draw(*args, **kwargs):
     """ plt.plot специально для рисования Model и PartialModel"""
