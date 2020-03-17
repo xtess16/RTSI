@@ -1,11 +1,15 @@
 import functools
 import itertools
+import queue
+import threading
+import time
 from typing import Union, Sequence, Optional, Tuple, List
 
 import RegscorePy as rp
 import chow_test
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 import scipy
 from scipy.stats.stats import pearsonr
 from statsmodels.tsa.arima_model import ARIMA
@@ -15,7 +19,7 @@ from statsmodels.stats.diagnostic import het_white
 from tqdm import tqdm
 
 T_SEQUENCE = Union[Sequence, np.ndarray]
-SARIMAX
+
 
 def draw(*args, **kwargs):
     """ plt.plot специально для рисования Model и PartialModel"""
@@ -419,13 +423,14 @@ class Arima:
         return _fitted
 
     @classmethod
-    def find_optimal_model_by_order(cls, endog, p_sequence, d_sequence, q_sequence):
+    def find_optimal_model_by_order(cls, endog, p_sequence, d_sequence, q_sequence, thread_count=1):
         """
             Подбор оптимальных p, d, q для последовательности
         :param endog: Последовательность
         :param p_sequence: параметр p
         :param d_sequence: параметр d
         :param q_sequence: параметр q
+        :param thread_count: Количество потоков, которые будут искать решение
         :return: Модель и натренированную модель
         """
         if isinstance(endog, Model):
@@ -436,26 +441,52 @@ class Arima:
             d_sequence = (d_sequence, )
         if isinstance(q_sequence, int):
             q_sequence = (q_sequence, )
-        min_fitted = None
+
+        def pdq_handler(_endog, source: queue.Queue, out: queue.Queue):
+            while True:
+                try:
+                    data = source.get_nowait()
+                except queue.Empty:
+                    break
+                _p, _d, _q = data
+                try:
+                    s = time.time()
+                    _model = cls(_endog, order=(_p, _d, _q))
+                    _fitted = _model.fit()
+                    print(time.time() - s)
+                except ValueError as e:
+                    if 'pass your own start_params.' not in str(e):
+                        raise e
+                except np.linalg.LinAlgError:
+                    pass
+                except Exception as e:
+                    if 'Expect positive integer' not in str(e):
+                        raise e
+                else:
+                    out.put(_fitted)
+                finally:
+                    source.task_done()
 
         iter_count: int = len(p_sequence) * len(d_sequence) * len(q_sequence)
-        for p, d, q in tqdm(
-                itertools.product(p_sequence, d_sequence, q_sequence),
-                total=iter_count, desc='ARIMA ', unit=' fit'):
-            try:
-                _model = cls(endog, order=(p, d, q))
-                _fitted = _model.fit()
-                if min_fitted is None or min_fitted.aic > _fitted.aic:
-                    min_fitted = _fitted
-            except ValueError as e:
-                if 'pass your own start_params.' in str(e):
-                    pass
-            except np.linalg.LinAlgError:
-                pass
-            except Exception as e:
-                if 'Expect positive integer' not in str(e):
-                    raise e
-        return min_fitted.model, min_fitted
+        data_source = queue.Queue()
+        data_result = queue.Queue()
+        for p, d, q in itertools.product(p_sequence, d_sequence, q_sequence):
+            data_source.put((p, d, q))
+
+        threads = []
+        for _ in range(thread_count):
+            threads.append(threading.Thread(target=pdq_handler, args=(endog.copy(), data_source, data_result)))
+            threads[-1].start()
+
+        start = time.time()
+        data_source.join()
+        print('Finish', time.time() - start)
+        min_fitted = None
+        while not data_result.empty():
+            fitted_model = data_result.get()
+            if min_fitted is None or fitted_model.aic < min_fitted.aic:
+                min_fitted = fitted_model
+        return min_fitted
 
     def __getattr__(self, item):
         return getattr(self.model, item)
