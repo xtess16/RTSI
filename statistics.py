@@ -3,6 +3,8 @@ import itertools
 import queue
 import threading
 import time
+import traceback
+from multiprocessing.pool import Pool
 from typing import Union, Sequence, Optional, Tuple, List
 
 import RegscorePy as rp
@@ -17,6 +19,7 @@ from statsmodels.tsa.statespace.sarimax import SARIMAX
 from statsmodels.tsa.stattools import adfuller, pacf, acf
 from statsmodels.stats.diagnostic import het_white
 from tqdm import tqdm
+import warnings
 
 T_SEQUENCE = Union[Sequence, np.ndarray]
 
@@ -423,15 +426,14 @@ class Arima:
         return _fitted
 
     @classmethod
-    def find_optimal_model_by_order(cls, endog, p_sequence, d_sequence, q_sequence, thread_count=1):
+    def find_optimal_model_by_order(cls, endog, p_sequence, d_sequence, q_sequence):
         """
-            Подбор оптимальных p, d, q для последовательности
+            Подбор оптимальных p, d, q для временного ряда
         :param endog: Последовательность
         :param p_sequence: параметр p
         :param d_sequence: параметр d
         :param q_sequence: параметр q
-        :param thread_count: Количество потоков, которые будут искать решение
-        :return: Модель и натренированную модель
+        :return: Натренированная модель с наименьшим aic
         """
         if isinstance(endog, Model):
             endog = endog.sequence
@@ -442,51 +444,40 @@ class Arima:
         if isinstance(q_sequence, int):
             q_sequence = (q_sequence, )
 
-        def pdq_handler(_endog, source: queue.Queue, out: queue.Queue):
-            while True:
-                try:
-                    data = source.get_nowait()
-                except queue.Empty:
-                    break
-                _p, _d, _q = data
-                try:
-                    s = time.time()
-                    _model = cls(_endog, order=(_p, _d, _q))
-                    _fitted = _model.fit()
-                    print(time.time() - s)
-                except ValueError as e:
-                    if 'pass your own start_params.' not in str(e):
-                        raise e
-                except np.linalg.LinAlgError:
-                    pass
-                except Exception as e:
-                    if 'Expect positive integer' not in str(e):
-                        raise e
-                else:
-                    out.put(_fitted)
-                finally:
-                    source.task_done()
+        start = time.monotonic()
+        pool = Pool()
+        result = pool.map(
+            cls.pdq_handler,
+            [(endog, p, d, q) for p, d, q in itertools.product(p_sequence, d_sequence, q_sequence)]
+        )
+        finish = time.monotonic() - start
+        print(f'Перебрал {len(result)} вариант(а/ов) за {finish:.2f} сек.')
+        min_fitted_model = min(result, key=lambda x: float('inf') if x is None else x.aic)
+        return min_fitted_model
 
-        iter_count: int = len(p_sequence) * len(d_sequence) * len(q_sequence)
-        data_source = queue.Queue()
-        data_result = queue.Queue()
-        for p, d, q in itertools.product(p_sequence, d_sequence, q_sequence):
-            data_source.put((p, d, q))
-
-        threads = []
-        for _ in range(thread_count):
-            threads.append(threading.Thread(target=pdq_handler, args=(endog.copy(), data_source, data_result)))
-            threads[-1].start()
-
-        start = time.time()
-        data_source.join()
-        print('Finish', time.time() - start)
-        min_fitted = None
-        while not data_result.empty():
-            fitted_model = data_result.get()
-            if min_fitted is None or fitted_model.aic < min_fitted.aic:
-                min_fitted = fitted_model
-        return min_fitted
+    @staticmethod
+    def pdq_handler(args):
+        """ Возвращает обученную на переданных данных модель """
+        try:
+            _model = Arima(args[0], order=args[1:])
+            _fitted = _model.fit()
+        except KeyboardInterrupt:
+            return None
+        except ValueError as e:
+            if 'pass your own start_params.' in str(e):
+                return None
+            elif 'On entry to DLASCL parameter number 4 had an illegal value' in str(e):
+                return None
+            print(args[1:])
+            print(traceback.format_exc())
+        except np.linalg.LinAlgError:
+            pass
+        except Exception as e:
+            if 'Expect positive integer' not in str(e):
+                print(args[1:])
+                print(traceback.format_exc())
+        else:
+            return _fitted
 
     def __getattr__(self, item):
         return getattr(self.model, item)
