@@ -426,13 +426,14 @@ class Arima:
         return _fitted
 
     @classmethod
-    def find_optimal_model_by_order(cls, endog, p_sequence, d_sequence, q_sequence):
+    def find_optimal_model_by_order(cls, endog, p_sequence, d_sequence, q_sequence, top=1):
         """
             Подбор оптимальных p, d, q для временного ряда
         :param endog: Последовательность
         :param p_sequence: параметр p
         :param d_sequence: параметр d
         :param q_sequence: параметр q
+        :param top: Количство лучших моделей, которое надо вернуть
         :return: Натренированная модель с наименьшим aic
         """
         if isinstance(endog, Model):
@@ -452,8 +453,19 @@ class Arima:
         )
         finish = time.monotonic() - start
         print(f'Перебрал {len(result)} вариант(а/ов) за {finish:.2f} сек.')
-        min_fitted_model = min(result, key=lambda x: float('inf') if x is None else x.aic)
-        return min_fitted_model
+        if top == 1:
+            min_fitted_model = min(result, key=lambda x: float('inf') if x is None else x.aic)
+            return min_fitted_model
+        else:
+            results = []
+            for _ in range(top):
+                if not result:
+                    results.append(None)
+                else:
+                    tmp_min = min(result, key=lambda x: float('inf') if x is None else x.aic)
+                    result.remove(tmp_min)
+                    results.append(tmp_min)
+            return results
 
     @staticmethod
     def pdq_handler(args):
