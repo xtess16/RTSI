@@ -404,7 +404,7 @@ class Arima:
         """ Тренировка модели """
         _fitted = self.model.fit(*args, **kwargs)
         # FIXME: k-?
-        _fitted.aic = Model(self.model.endog).aic(_fitted.series, self.order[0]+self.order[2])
+        # _fitted.aic = Model(self.model.endog).aic(_fitted.series, self.order[0]+self.order[2])
         _fitted.order = self.order
         return _fitted
 
