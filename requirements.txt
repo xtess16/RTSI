@@ -37,6 +37,7 @@ Keras==2.3.1
 Keras-Applications==1.0.8
 Keras-Preprocessing==1.1.0
 kiwisolver==1.1.0
+littleutils==0.2.2
 lxml==4.5.0
 Markdown==3.2.1
 MarkupSafe==1.1.1
@@ -49,13 +50,16 @@ numdifftools==0.9.39
 numpy==1.18.1
 oauthlib==3.1.0
 opt-einsum==3.2.0
+outdated==0.2.0
 pandas==1.0.1
 pandas-datareader==0.8.1
+pandas-flavor==0.2.0
 pandocfilters==1.4.2
 parso==0.6.2
 patsy==0.5.1
 pexpect==4.8.0
 pickleshare==0.7.5
+pingouin==0.3.3
 pkg-resources==0.0.0
 prometheus-client==0.7.1
 prompt-toolkit==3.0.4
@@ -99,4 +103,6 @@ webencodings==0.5.1
 Werkzeug==1.0.0
 widgetsnbextension==3.5.1
 wrapt==1.12.0
+xarray==0.15.1
+xlrd==1.2.0
 zipp==3.1.0
