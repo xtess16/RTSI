@@ -12,6 +12,7 @@ import numpy as np
 import scipy
 import statsmodels.api as sm
 from scipy.stats.stats import pearsonr
+from sklearn.metrics import r2_score
 from sklearn.preprocessing import PolynomialFeatures
 from statsmodels.tsa.arima_model import ARIMA
 from statsmodels.tsa.stattools import adfuller, pacf, acf
@@ -476,3 +477,4 @@ class Arima:
 
     def __getattr__(self, item):
         return getattr(self.model, item)
+r2_score
