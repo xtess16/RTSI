@@ -187,7 +187,7 @@ class Model:
     def polynomial_trend(self, degree):
         """ Построение тренда по степени полинома """
         pf = PolynomialFeatures(degree=degree)
-        xp = pf.fit_transform(np.arange(self.series.size)[:, np.newaxis])
+        xp = pf.fit_transform(np.arange(1, self.series.size+1)[:, np.newaxis])
         fitted_model = sm.OLS(self.series, xp).fit()
         trend_line = Model(fitted_model.fittedvalues)
         trend_line.fitted_model = fitted_model
