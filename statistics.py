@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import scipy
 import statsmodels.api as sm
+from arch import arch_model
 from scipy.stats.stats import pearsonr
 from sklearn.metrics import r2_score
 from sklearn.preprocessing import PolynomialFeatures
@@ -404,8 +405,6 @@ class Arima:
     def fit(self, *args, **kwargs):
         """ Тренировка модели """
         _fitted = self.model.fit(*args, **kwargs)
-        # FIXME: k-?
-        # _fitted.aic = Model(self.model.endog).aic(_fitted.series, self.order[0]+self.order[2])
         _fitted.order = self.order
         return _fitted
 
@@ -417,7 +416,7 @@ class Arima:
         :param p_series: параметр p
         :param d_series: параметр d
         :param q_series: параметр q
-        :param top: Количство лучших моделей, которое надо вернуть
+        :param top: Количество лучших моделей, которое надо вернуть
         :return: Натренированная модель с наименьшим aic
         """
         if isinstance(endog, Model):
@@ -477,4 +476,6 @@ class Arima:
 
     def __getattr__(self, item):
         return getattr(self.model, item)
-r2_score
+
+
+arch_model
